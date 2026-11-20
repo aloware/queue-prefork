@@ -56,6 +56,25 @@ class ForkedProcessTest extends TestCase
         $this->assertSame(0, $worker->getExitCode());
     }
 
+    public function test_the_worker_gets_the_environment_start_is_given_over_the_requesters(): void
+    {
+        putenv('QP_TEST_INHERITED=from-the-requester');
+        putenv('QP_TEST_OVERRIDDEN=from-the-requester');
+
+        try {
+            // As Symfony's Process::start($callback, $env): the extra variables join the requester's.
+            $this->worker()->start(null, ['QP_TEST_EXTRA' => 'for-this-worker', 'QP_TEST_OVERRIDDEN' => 'for-this-worker']);
+            $env = $this->expect('spawn')['env'];
+        } finally {
+            putenv('QP_TEST_INHERITED');
+            putenv('QP_TEST_OVERRIDDEN');
+        }
+
+        $this->assertSame('for-this-worker', $env['QP_TEST_EXTRA']);
+        $this->assertSame('for-this-worker', $env['QP_TEST_OVERRIDDEN']);
+        $this->assertSame('from-the-requester', $env['QP_TEST_INHERITED']);
+    }
+
     public function test_a_cancelled_spawn_starts_again(): void
     {
         $worker = $this->worker();

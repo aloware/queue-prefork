@@ -138,7 +138,7 @@ class ForkedProcess extends Process
             'role' => $this->role,
             'cmd' => $this->line,
             'cwd' => $this->directory,
-            'env' => getenv(),
+            'env' => $env + getenv(),
             'prepend' => Runtime::$prepend ?? (string) ini_get('auto_prepend_file'),
         ]);
 
