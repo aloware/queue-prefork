@@ -117,7 +117,9 @@ final class Preflight
                 continue;
             }
 
-            $entry = str_starts_with($m[2], '/') ? $m[2] : $app->basePath($m[2]);
+            // The script as the shell would pass it: an app may quote its path.
+            $script = CommandLine::split($m[2])[0] ?? $m[2];
+            $entry = str_starts_with($script, '/') ? $script : $app->basePath($script);
 
             if (! is_file($entry)) {
                 $reasons[] = "{$kind} entry script {$entry} not found";

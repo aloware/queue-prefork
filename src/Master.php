@@ -82,9 +82,25 @@ final class Master
     public function __construct(private Application $app) {}
 
     /**
-     * @param  bool|null  $inline  the app runs its supervisors in this process and asks for their workers through
-     *                             workerProcess(), so its own AddSupervisor binding is expected, not a conflict;
-     *                             null reads queue-prefork.horizon_inline, which the doctor reads too
+     * The master of this process, bound on first use. The package binds it itself only for `artisan horizon`;
+     * a command of the app's own that starts workers (see worker()) gets it here.
+     */
+    public static function of(Application $app): self
+    {
+        if (! $app->bound(self::class)) {
+            Settings::mergeDefaults($app);
+            $app->singleton(self::class);
+        }
+
+        return $app->make(self::class);
+    }
+
+    /**
+     * @param  bool|null  $inline  this process runs the loop itself and asks for workers through worker() or
+     *                             workerProcess(): an app whose supervisors run in the master, or a command of
+     *                             its own that starts workers. Its own Horizon bindings are then expected, not
+     *                             a conflict, and it calls tick() from its loop when Horizon's master loop does
+     *                             not run here. null reads queue-prefork.horizon_inline, which the doctor reads too
      */
     public function start(?callable $warn = null, ?bool $inline = null): bool
     {
@@ -201,23 +217,35 @@ final class Master
      */
     public function workerProcess(SupervisorOptions $options): ?ForkedProcess
     {
-        if (! $this->canForkUnits() || isset($this->stockNames[$options->name])) {
+        return $this->worker($options->name, $options->toWorkerCommand(), $options->directory);
+    }
+
+    /**
+     * A `horizon:work` worker forked by the template for a process that starts its workers itself, or null
+     * for a stock one, under the conditions of workerProcess(). The handle is a Symfony Process: start() it
+     * with the worker's extra environment, stop() and signal() it as one exec'd from $commandLine.
+     *
+     * @param  string  $group  what the crash breaker counts together: workers of one group that keep exiting
+     *                         before their first loop turn that group stock (a supervisor's name, for Horizon)
+     * @param  string  $commandLine  as Horizon builds it: `exec php artisan horizon:work …`
+     */
+    public function worker(string $group, string $commandLine, ?string $directory = null): ?ForkedProcess
+    {
+        if (! $this->canForkUnits() || isset($this->stockNames[$group])) {
             return null;
         }
-
-        $line = $options->toWorkerCommand();
 
         try {
-            CommandLine::parse($line, ['horizon:work']);
+            CommandLine::parse($commandLine, ['horizon:work']);
         } catch (Throwable $e) {
-            $this->stockNames[$options->name] = $e->getMessage();
+            $this->stockNames[$group] = $e->getMessage();
 
             return null;
         }
 
-        $worker = new ForkedProcess($this->broker, 'worker', $line, $options->directory ?? base_path(), ! config('horizon.fast_termination'));
-        $worker->onExit = function (ForkedProcess $process, int $status, bool $wasReady) use ($options): void {
-            $this->workerExited($options->name, $process, $status, $wasReady);
+        $worker = new ForkedProcess($this->broker, 'worker', $commandLine, $directory ?? base_path(), ! config('horizon.fast_termination'));
+        $worker->onExit = function (ForkedProcess $process, int $status, bool $wasReady) use ($group): void {
+            $this->workerExited($group, $process, $status, $wasReady);
         };
 
         return $worker;

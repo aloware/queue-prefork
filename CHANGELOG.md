@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The project uses [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- **A command of your own that starts workers:** a long-running command that starts `horizon:work` workers itself, with no Horizon master in its process, can have them forked: `Master::of($app)` gives it the master, `Master::worker($group, $commandLine, $directory)` a forked worker or null for a stock one, and it calls `tick()` from its loop. `Master::workerProcess()` is now this call with a supervisor's name and command. See "A command of your own that starts workers" in the README.
+- **A worker's own environment:** a forked process gets the variables passed to `start($callback, $env)` on top of its requester's, as a Symfony `Process` does. They were dropped.
+- **Quoted entry script:** preflight reads the entry script from Horizon's command strings as the shell would, so an app that quotes its path (`exec @php '/path/to/artisan' horizon:work`) is no longer told the script is missing.
+
 ## [1.1.2.1] - 2026-11-20
 
 - **Supervisors inside the master:** an app that runs Horizon's supervisors in the master process can have the template fork their workers directly (`horizon_inline`, `Master::start()`, `ForksWorkersFromTemplate`). The template's worker handling is shared with the fork servers (`WorkerSet`), and the template TERMs the workers it forked when its master is gone.

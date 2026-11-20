@@ -162,6 +162,18 @@ Some apps run Horizon's supervisors inside the master instead of one process eac
 - **Give each in-process supervisor a process pool that uses `Tevkert\QueuePrefork\Horizon\ForksWorkersFromTemplate`.** Its workers are forked while the master runs this way and exec'd as stock otherwise. A stopped worker whose template is gone, or whose supervisor the crash breaker turned stock, gets a new handle, forked again or stock, instead of being restarted on the old one.
 - **Don't run `horizon:purge` in this mode.** It looks for workers among the children of supervisor processes, and these workers are the template's children.
 
+### A command of your own that starts workers
+
+Some apps start `horizon:work` workers from a long-running command of their own, with no Horizon master in that process: a node that takes its share of workers from a plan another node publishes, for example. Those workers can be forked too, by the same mechanism as above.
+
+- **Get the master** with `Tevkert\QueuePrefork\Master::of($app)`. The package binds it itself only for `artisan horizon`; this binds it for your command.
+- **Start it once** with `->start($warn, inline: true)`, before the first worker. It returns false and changes nothing when the package is switched off or a check fails, and your command then starts its workers as it always did.
+- **Ask for each worker** with `->worker($group, $commandLine, $directory)`. It returns a Symfony `Process`, or null for you to start a stock one. `$commandLine` is the line you would exec (`exec php artisan horizon:work …`). `$group` is what the crash breaker counts together: workers of one group that keep exiting before their first loop turn that group stock. Variables passed to `start($callback, $env)` reach the worker on top of your command's environment.
+- **Call `->tick()` from your loop,** about once a second. Horizon's master loop does it for `artisan horizon`; nothing does it for your command.
+- **Don't run it as PID 1.** As for Horizon, start it under an init such as `tini`.
+
+The template is a child of your command and stops the workers it forked when your command is gone.
+
 ### Fork safety
 
 Before forking, a template audits itself: sockets, epoll, eventfd or extra threads that extensions open at startup mean stock workers. ddtrace, Elastic APM and gRPC with fork support (`grpc.enable_fork_support=1`, which rebuilds its threads and poller in each fork) are allowed; workers run stock with New Relic, gRPC without fork support, datadog-profiling and Blackfire.
